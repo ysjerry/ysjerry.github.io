@@ -98,7 +98,7 @@
                     speed: position.coords.speed
                 };
                 collectedData.push(gpsData);
-                updateStatus(`Collected GPS data at ${gpsData.timestamp} - Lat: ${gpsData.latitude}, Lon: ${gpsData.longitude} Heading: ${gpsData.heading || 'N/A'} Speed: ${gpsData.speed || 'N/A'}`);
+                updateStatus(`Collected Heading: ${gpsData.heading} Speed: ${gpsData.speed || 'N/A'}`);
                 gpsStatus.textContent = `GPS: Active (${gpsData.latitude}, ${gpsData.longitude}) `;
             }, error => {
                 console.error('Geolocation error:', error);
