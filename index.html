@@ -29,6 +29,23 @@
         .active {
             background-color: #e6f7e6;
         }
+        .sensor-status {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .sensor-item {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .sensor-available {
+            background-color: #e6f7e6;
+        }
+        .sensor-unavailable {
+            background-color: #ffebee;
+        }
     </style>
 </head>
 <body>
@@ -36,120 +53,59 @@
     <button id="toggleBtn">Start Collection</button>
     <button id="downloadBtn" disabled>Download Data</button>
     <div id="status">Ready to start data collection</div>
+    
+    <div class="sensor-status">
+        <h3>GPS Status</h3>
+        <div id="gps-status" class="sensor-item">GPS: Checking...</div>
+    </div>
 
     <script>
         let isCollecting = false;
         let collectedData = [];
-        let collectionInterval;
         let currentFileName = '';
+        let sensorIntervals = {};
         
         // DOM elements
         const toggleBtn = document.getElementById('toggleBtn');
         const downloadBtn = document.getElementById('downloadBtn');
         const statusDiv = document.getElementById('status');
+        const gpsStatus = document.getElementById('gps-status');
 
-        // Sensor data collection
-        function collectSensorData() {
-            if ('geolocation' in navigator && 'accelerometer' in window && 'gyroscope' in window && 'magnetometer' in window) {
-                // Collect GPS data
-                navigator.geolocation.getCurrentPosition(position => {
-                    const gpsData = {
-                        timestamp: new Date().toISOString(),
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        accuracy: position.coords.accuracy,
-                        altitude: position.coords.altitude,
-                        altitudeAccuracy: position.coords.altitudeAccuracy,
-                        heading: position.coords.heading,
-                        speed: position.coords.speed
-                    };
-                    
-                    // Collect motion data
-                    Promise.all([
-                        getAccelerometerData(),
-                        getGyroscopeData(),
-                        getMagnetometerData()
-                    ]).then(motionData => {
-                        const sensorData = {
-                            ...gpsData,
-                            accelerometer: motionData[0],
-                            gyroscope: motionData[1],
-                            magnetometer: motionData[2]
-                        };
-                        
-                        collectedData.push(sensorData);
-                        updateStatus(`Collected data at ${new Date().toLocaleTimeString()}`);
-                    });
-                }, error => {
-                    console.error('Geolocation error:', error);
-                    updateStatus(`GPS Error: ${error.message}`);
-                });
-            } else {
-                updateStatus('Error: Some sensors are not available on this device');
-                stopCollection();
-            }
+        // Check sensor availability
+        function checkSensors() {
+            const hasGPS = 'geolocation' in navigator;
+            
+            gpsStatus.textContent = `GPS: ${hasGPS ? 'Available' : 'Unavailable'}`;
+            gpsStatus.className = `sensor-item ${hasGPS ? 'sensor-available' : 'sensor-unavailable'}`;
+            
+            return hasGPS;
         }
 
-        // Helper functions for sensor data
-        async function getAccelerometerData() {
-            try {
-                const sensor = new Accelerometer({ frequency: 1 });
-                return new Promise(resolve => {
-                    sensor.onreading = () => {
-                        sensor.stop();
-                        resolve({
-                            x: sensor.x,
-                            y: sensor.y,
-                            z: sensor.z
-                        });
-                    };
-                    sensor.start();
-                });
-            } catch (error) {
-                console.error('Accelerometer error:', error);
-                return null;
-            }
+        // Sensor data collection functions
+        function collectGPSData() {
+            if (!('geolocation' in navigator)) return;
+            
+            navigator.geolocation.getCurrentPosition(position => {
+                const gpsData = {
+                    timestamp: new Date().toISOString(),
+                    type: 'gps',
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: position.coords.accuracy,
+                    altitude: position.coords.altitude,
+                    altitudeAccuracy: position.coords.altitudeAccuracy,
+                    heading: position.coords.heading,
+                    speed: position.coords.speed
+                };
+                collectedData.push(gpsData);
+                updateStatus(`Collected GPS data at ${new Date().toLocaleTimeString()}`);
+            }, error => {
+                console.error('Geolocation error:', error);
+                gpsStatus.textContent = `GPS: Error (${error.message})`;
+                gpsStatus.className = 'sensor-item sensor-unavailable';
+            });
         }
 
-        async function getGyroscopeData() {
-            try {
-                const sensor = new Gyroscope({ frequency: 1 });
-                return new Promise(resolve => {
-                    sensor.onreading = () => {
-                        sensor.stop();
-                        resolve({
-                            x: sensor.x,
-                            y: sensor.y,
-                            z: sensor.z
-                        });
-                    };
-                    sensor.start();
-                });
-            } catch (error) {
-                console.error('Gyroscope error:', error);
-                return null;
-            }
-        }
-
-        async function getMagnetometerData() {
-            try {
-                const sensor = new Magnetometer({ frequency: 1 });
-                return new Promise(resolve => {
-                    sensor.onreading = () => {
-                        sensor.stop();
-                        resolve({
-                            x: sensor.x,
-                            y: sensor.y,
-                            z: sensor.z
-                        });
-                    };
-                    sensor.start();
-                });
-            } catch (error) {
-                console.error('Magnetometer error:', error);
-                return null;
-            }
-        }
 
         // Start/stop data collection
         function toggleCollection() {
@@ -161,6 +117,11 @@
         }
 
         function startCollection() {
+            if (!checkSensors()) {
+                updateStatus('Error: No sensors available');
+                return;
+            }
+
             isCollecting = true;
             toggleBtn.textContent = 'Stop Collection';
             statusDiv.textContent = 'Starting data collection...';
@@ -169,14 +130,20 @@
             // Create new filename for this session
             currentFileName = `sensor_data_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
             
-            // Start collecting immediately and then every 10 minutes
-            collectSensorData();
-            collectionInterval = setInterval(collectSensorData, 10 * 60 * 1000);
+            // Clear previous data
+            collectedData = [];
+            
+            // Start GPS collection
+            sensorIntervals.gps = setInterval(collectGPSData, 1000); // 1Hz
         }
 
         function stopCollection() {
             isCollecting = false;
-            clearInterval(collectionInterval);
+            
+            // Stop GPS collection
+            clearInterval(sensorIntervals.gps);
+            sensorIntervals = {};
+            
             toggleBtn.textContent = 'Start Collection';
             statusDiv.className = '';
             
