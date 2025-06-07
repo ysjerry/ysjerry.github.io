@@ -1,10 +1,226 @@
+<!DOCTYPE html>
 <html>
-    <head>
-        <title>
-            GPS Data Collector
-        </title>
-    </head>
-    <body>
+<head>
+    <title>GPS Sensor Data Collector</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:disabled {
+            background-color: #cccccc;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .active {
+            background-color: #e6f7e6;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sensor Data Collector</h1>
+    <button id="toggleBtn">Start Collection</button>
+    <button id="downloadBtn" disabled>Download Data</button>
+    <div id="status">Ready to start data collection</div>
+
+    <script>
+        let isCollecting = false;
+        let collectedData = [];
+        let collectionInterval;
+        let currentFileName = '';
         
-    </body>
+        // DOM elements
+        const toggleBtn = document.getElementById('toggleBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const statusDiv = document.getElementById('status');
+
+        // Sensor data collection
+        function collectSensorData() {
+            if ('geolocation' in navigator && 'accelerometer' in window && 'gyroscope' in window && 'magnetometer' in window) {
+                // Collect GPS data
+                navigator.geolocation.getCurrentPosition(position => {
+                    const gpsData = {
+                        timestamp: new Date().toISOString(),
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        accuracy: position.coords.accuracy,
+                        altitude: position.coords.altitude,
+                        altitudeAccuracy: position.coords.altitudeAccuracy,
+                        heading: position.coords.heading,
+                        speed: position.coords.speed
+                    };
+                    
+                    // Collect motion data
+                    Promise.all([
+                        getAccelerometerData(),
+                        getGyroscopeData(),
+                        getMagnetometerData()
+                    ]).then(motionData => {
+                        const sensorData = {
+                            ...gpsData,
+                            accelerometer: motionData[0],
+                            gyroscope: motionData[1],
+                            magnetometer: motionData[2]
+                        };
+                        
+                        collectedData.push(sensorData);
+                        updateStatus(`Collected data at ${new Date().toLocaleTimeString()}`);
+                    });
+                }, error => {
+                    console.error('Geolocation error:', error);
+                    updateStatus(`GPS Error: ${error.message}`);
+                });
+            } else {
+                updateStatus('Error: Some sensors are not available on this device');
+                stopCollection();
+            }
+        }
+
+        // Helper functions for sensor data
+        async function getAccelerometerData() {
+            try {
+                const sensor = new Accelerometer({ frequency: 1 });
+                return new Promise(resolve => {
+                    sensor.onreading = () => {
+                        sensor.stop();
+                        resolve({
+                            x: sensor.x,
+                            y: sensor.y,
+                            z: sensor.z
+                        });
+                    };
+                    sensor.start();
+                });
+            } catch (error) {
+                console.error('Accelerometer error:', error);
+                return null;
+            }
+        }
+
+        async function getGyroscopeData() {
+            try {
+                const sensor = new Gyroscope({ frequency: 1 });
+                return new Promise(resolve => {
+                    sensor.onreading = () => {
+                        sensor.stop();
+                        resolve({
+                            x: sensor.x,
+                            y: sensor.y,
+                            z: sensor.z
+                        });
+                    };
+                    sensor.start();
+                });
+            } catch (error) {
+                console.error('Gyroscope error:', error);
+                return null;
+            }
+        }
+
+        async function getMagnetometerData() {
+            try {
+                const sensor = new Magnetometer({ frequency: 1 });
+                return new Promise(resolve => {
+                    sensor.onreading = () => {
+                        sensor.stop();
+                        resolve({
+                            x: sensor.x,
+                            y: sensor.y,
+                            z: sensor.z
+                        });
+                    };
+                    sensor.start();
+                });
+            } catch (error) {
+                console.error('Magnetometer error:', error);
+                return null;
+            }
+        }
+
+        // Start/stop data collection
+        function toggleCollection() {
+            if (isCollecting) {
+                stopCollection();
+            } else {
+                startCollection();
+            }
+        }
+
+        function startCollection() {
+            isCollecting = true;
+            toggleBtn.textContent = 'Stop Collection';
+            statusDiv.textContent = 'Starting data collection...';
+            statusDiv.className = 'active';
+            
+            // Create new filename for this session
+            currentFileName = `sensor_data_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            
+            // Start collecting immediately and then every 10 minutes
+            collectSensorData();
+            collectionInterval = setInterval(collectSensorData, 10 * 60 * 1000);
+        }
+
+        function stopCollection() {
+            isCollecting = false;
+            clearInterval(collectionInterval);
+            toggleBtn.textContent = 'Start Collection';
+            statusDiv.className = '';
+            
+            if (collectedData.length > 0) {
+                downloadBtn.disabled = false;
+                updateStatus(`Collection stopped. Ready to download ${collectedData.length} records.`);
+            } else {
+                updateStatus('Collection stopped. No data collected.');
+            }
+        }
+
+        // Download functionality
+        function downloadData() {
+            if (collectedData.length === 0) {
+                updateStatus('No data to download');
+                return;
+            }
+            
+            const dataStr = JSON.stringify(collectedData, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = currentFileName;
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            updateStatus(`Downloaded ${collectedData.length} records`);
+        }
+
+        // Update status display
+        function updateStatus(message) {
+            statusDiv.textContent = message;
+        }
+
+        // Event listeners
+        toggleBtn.addEventListener('click', toggleCollection);
+        downloadBtn.addEventListener('click', downloadData);
+    </script>
+</body>
 </html>
